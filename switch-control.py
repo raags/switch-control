@@ -122,6 +122,7 @@ class Switch:
         """Exit from the switch"""
         print "exiting..."
         self.child.sendline("exit")
+	self.child.close()
 
 
 
