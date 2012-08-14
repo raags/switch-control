@@ -1,6 +1,5 @@
 #!/usr/bin/python
 """
-
   Copyright (C) 2012 Raghu Udiyar <raghusiddarth@gmail.com>
   
   This copyrighted material is made available to anyone wishing to use,
@@ -16,25 +15,28 @@
   Author       : Raghu Udiyar <raghusiddarth@gmail.com>
   Description  : Runs CISCO IOS commands on a remote cisco switch non-interactively using an ssh connection
   Usage        : switch-control.py --help
-
-$Id: switch-control.py 507 2012-06-07 02:40:52Z rags $
 """
 
 import re
 import sys
-import pexpect
 import argparse
 import getpass
+
+try:
+    import pexpect
+except ImportError:
+    print "Please install pexpect : http://www.noah.org/wiki/pexpect"
+    exit(1)
 
 VERSION="0.7"
 DEBUG=0
 LOGFILE="./switch.out"
 
 class Switch:
-    """Class used to initiate switch connection and run the commands"""
+    """Class used to initiate switch connection and run the commands."""
     
     def __init__(self, hostname, username="", password=""):
-        """Instantiate object with hostname. username and password are optional"""
+        """Instantiate object with hostname. username and password are optional."""
 
         self.hostname=hostname
 
@@ -59,7 +61,7 @@ class Switch:
 
 
     def connect(self):
-        """Initiates the ssh connection to the Switch"""
+        """Initiates the ssh connection to the Switch."""
 
         prompt = self.prompt
         sshcmd="ssh %s -l %s" % (self.hostname, self.user)
@@ -108,7 +110,7 @@ class Switch:
         
 
     def run(self, command):
-        """Runs the provided command on the switch and returns the output if 'show' commands are issued"""
+        """Runs the provided command on the switch and returns the output if 'show' commands are issued."""
         child = self.child
         prompt = self.prompt
 
