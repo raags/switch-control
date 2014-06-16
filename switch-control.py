@@ -1,180 +1,108 @@
 #!/usr/bin/env python
 """
-
-  Copyright (C) 2012 Raghu Udiyar <raghusiddarth@gmail.com>
-  
-  This copyrighted material is made available to anyone wishing to use,
-  modify, copy, or redistribute it subject to the terms and conditions
-  of the GNU General Public License, either version 2 of the License, or
-  (at your option) any later version
- 
-  You should have received a copy of the GNU General Public License
-  along with this program; if not, write to the Free Software Foundation,
-  Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
-
- 
-  Author       : Raghu Udiyar <raghusiddarth@gmail.com>
-  Description  : Runs CISCO IOS commands on a remote cisco switch non-interactively using an ssh connection
-  Usage        : switch-control.py --help
-  Url          : https://github.com/raags/switch-control
+Runs CISCO IOS commands on a remote cisco switch non-interactively 
+using an ssh connection
 """
-
-import re
-import sys
-import pexpect
-import argparse
-import getpass
-
-VERSION="0.8"
-DEBUG=0
-LOGFILE="./switch.out"
+from __future__ import print_function
+import time, argparse, getpass, logging, paramiko
 
 class Switch:
-    """Class used to initiate switch connection and run the commands"""
+    """Build switch connection and run specified commands"""
     
-    def __init__(self, hostname, username="", password=""):
-        """Instantiate object with hostname. username and password are optional"""
+    def __init__(self, switchname, username=None, password=None):
+        """
+        :param switchname: switchname
+        :param username: switch username
+        :param password: switch password
+        """
 
-        self.hostname=hostname
-
-#       To use configure commands the trailing host part may need to be truncated.
-#       because the prompt changes
-#
-#       q=re.compile(".trail|.trailing")
-#       host=q.split(hostname)[0]
-        if not host:
-            print "set hostname trailing string above to construct the prompt"
-            exit(1)
-            
-        self.prompt="%s.*#$" % host
-
+        self.switchname = switchname
         if username:
-            self.user = username
+            self.username = username
         else:
-            self.user = getpass.getuser()
-
-        print "Using username:%s" % self.user
+            self.username = getpass.getuser()
+        
+        self.logger = logging.getLogger(__name__)
+        
+        self.logger.info("Using username: {0}".format(self.username))
         if password:
-            self.passwd = password
+            self.password = password
         else:
-            self.passwd = getpass.getpass("Switch password:")
+            self.password = getpass.getpass("Switch password: ")
 
-
+        self.ssh = paramiko.SSHClient()
+        self.ssh.load_system_host_keys()      
+        self.ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+              
     def connect(self):
         """Initiates the ssh connection to the Switch"""
 
-        prompt = self.prompt
-        sshcmd="ssh %s -l %s" % (self.hostname, self.user)
+        self.ssh.connect(self.switchname, username=self.username, password=self.password, allow_agent=False)              
+        self.channel = self.ssh.invoke_shell()
         
-        self.child = pexpect.spawn(sshcmd)
-
-        child = self.child
-        child.setwinsize(400,400)
-
-        if(DEBUG):
-            child.logfile = open(LOGFILE, "w")
-            sys.stderr.write("Writing to file %s\n" % LOGFILE)
-
-        try:
-            index = child.expect(['password:','(yes/no)? $'])
-        except:
-            sys.stderr.write("Connection aborted, is hostname correct?\n")
-            exit(1)
-
-        if (index==0):    
-            child.sendline(self.passwd)
-            try:
-                child.expect(prompt)
-            except:
-                sys.stderr.write("Could not get prompt, is the password correct?\n")
-                exit(1)
-
-        elif (index==1):
-            child.sendline("yes")
-            child.expect('password:')
-            child.sendline(self.passwd)
-            try:
-                child.expect(prompt)
-            except:
-                sys.stderr.write("Could not get prompt, is the password correct?\n")
-                exit(1)
-        else:    
-            sys.stderr.write("Connection aborted, is hostname correct?\n")
-            exit(1)
-
-        print "Connection succeded"
-            
-#       Disables output scrolling
-        child.sendline("terminal length 0")
-        child.expect(prompt)
-        
+        # disables output scrolling
+        self.channel.send("terminal length 0\n")
+        time.sleep(1)
+        self.output = self.channel.recv(9999)
+        self.channel.send("\n")
 
     def run(self, command):
         """Runs the provided command on the switch and returns the output if 'show' commands are issued"""
-        child = self.child
-        prompt = self.prompt
-
-        child.sendline(command)
-        child.expect(prompt)
+        
+        self.logger.info("Running command: {0}".format(command))
+        self.channel.send(command+"\n")
+        time.sleep(2)
         if "show" in command:
-            print child.before
+            print(self.channel.recv(9999))
+
+    def close(self):
+        """Close connection"""
+        self.logger.info("close connection")
+        self.ssh.close()
 
 
-    def exit(self):
-        """Exit from the switch"""
-        print "exiting..."
-        self.child.sendline("exit")
-        self.child.close()
-
-
-
-def getargs():
-    parser = argparse.ArgumentParser(description="Runs CISCO IOS commands on a remote cisco switch non-interactively using a ssh connection. The commands can be either read from the commandline or a file. For debugging set DEBUG=1, debug output will be written to LOGFILE")
-                                                  
-    
-    parser.add_argument('hostname', metavar='hostname', type=str, help='switch hostname')
-    parser.add_argument('-u', '--username', type=str, help='switch username')
-    parser.add_argument('-p', '--password', type=str, help='switch password')
-    parser.add_argument('-v', '--version', action='version', version=VERSION)
+def main():
+    parser = argparse.ArgumentParser(description="Runs CISCO IOS commands on a remote     \
+        cisco switch non-interactively using a ssh connection. The commands can be either \
+        read from the commandline or a file")
+                                                      
+    parser.add_argument('-s', '--switchname', type=str, nargs='*', help='switch name')
+    parser.add_argument('-u', '--username', type=str, help='username')
+    parser.add_argument('-p', '--password', type=str, help='password')
+    parser.add_argument('-v', '--verbose', action='store_true', help='Verbose output')
+    parser.add_argument('-d', '--debug', action='store_true', help='Verbose output')
 
     group = parser.add_mutually_exclusive_group(required=True)
-    group.add_argument('-i', '--interactive', action='store_true', help='enter interactive mode (not implemented)')
     group.add_argument('-c', '--command', type=str, help='specify the command to run')
     group.add_argument('-f', '--file', type=str, help='read commands from a file')
 
     args = parser.parse_args()
-
-    if args.interactive:
-        print "interactive mode is in development"
-        return
-        
+    
+    if args.verbose:
+        logging.basicConfig(level=logging.INFO)
+    elif args.debug:
+        logging.basicConfig(level=logging.DEBUG)
+    
+    sw = Switch(args.switchname[0], args.username, args.password)
+    sw.connect()
+      
     if args.command:
-        sw = Switch(args.hostname, args.username, args.password)
-        sw.connect()
         sw.run(args.command)
-        sw.exit()
-        return
-        
-    if args.file:
+      
+    elif args.file:
         try:
-            fd = open(args.file, "r")
+            with open(args.file) as f:
+                for line in fd:
+                    sw.run(line)
+                  
         except IOError:
-            sys.stderr.write("%s file does not exist\n" % args.file)
+            print("Cannot read command file {0}".format(args.file))
             exit(1)
-
-        sw = Switch(args.hostname, args.username, args.password)
-        sw.connect()
-
-        for line in fd:
-            sw.run(line)
-
-        sw.exit()
-        return
+   
+    sw.close()
 
 
 if __name__ == '__main__':
-    
-    getargs()
-    exit(0)
+    main()
 
 # vim: autoindent tabstop=4 expandtab smarttab shiftwidth=4 softtabstop=4 tw=0
